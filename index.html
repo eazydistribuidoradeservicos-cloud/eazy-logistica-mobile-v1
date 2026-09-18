@@ -200,7 +200,7 @@
 // Identificador de versão visível na tela (rodapé) — serve pra confirmar
 // se o navegador está rodando o código novo, antes de investigar qualquer
 // outra coisa.
-const BUILD_INFO = "mobile-ghpages-v2-2026-09-17";
+const BUILD_INFO = "mobile-ghpages-v4-2026-09-18";
 document.getElementById("buildInfo").textContent = BUILD_INFO;
 
 // Captura QUALQUER erro não tratado (inclusive de dentro de listener de
@@ -255,7 +255,9 @@ const ETAPAS_SEM_SLA = ["Recebido", "Entregue"];
 // própria ("Devolução recebida", confirmando retorno físico do produto)
 // antes de sair da lista ativa.
 const ETAPAS_TERMINAIS = ["Entregue", "Devolução recebida"];
-const ETAPAS_SEQUENCIAIS = ["Recebido", "Triagem", "Separado", "Embalado", "Etiqueta gerada", "Postado", "Em trânsito", "Entregue"];
+// Ordem atualizada em 2026-09-18: "Etiqueta gerada" passou a vir ANTES de
+// "Separado" (antes era o contrário).
+const ETAPAS_SEQUENCIAIS = ["Recebido", "Triagem", "Etiqueta gerada", "Separado", "Embalado", "Postado", "Em trânsito", "Entregue"];
 const SUB_MOTIVOS_DEVOLUCAO = ["Cliente recusou", "Avaria", "Endereço incorreto", "Produto errado enviado", "Prazo extrapolado (cliente desistiu)", "Outro"];
 
 function calcularFarolTempoParado(etapa, timestampEntrada) {
@@ -425,6 +427,7 @@ function renderizar() {
         <div class="linha-detalhe">
           <p><b>Cliente:</b> ${p.cliente || '—'}</p>
           <p><b>Produto:</b> ${p.produto || '—'}</p>
+          ${p.codigo_rastreio ? `<p><b>Rastreio:</b> ${p.codigo_rastreio}${p.data_postado ? ' · postado em ' + p.data_postado : ''}</p>` : ''}
           ${detalheEspecial(p)}
           <div data-area-acoes>${acoesParaPedido(p)}</div>
         </div>
@@ -453,18 +456,23 @@ function renderizar() {
   document.querySelectorAll('[data-acao="abrir-problema"]').forEach(el => {
     el.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      // Capturar o pedidoId ANTES de trocar o innerHTML de `area` — depois
+      // dessa troca, `el` (que está dentro de `area`) fica desconectado do
+      // documento e `el.closest(...)` passa a retornar null.
+      const pedidoId = el.closest(".linha-pedido").dataset.id;
       const area = el.closest("[data-area-acoes]");
       area.innerHTML = formularioProblema();
-      ligarBotoesForm(area, el.closest(".linha-pedido").dataset.id);
+      ligarBotoesForm(area, pedidoId);
     });
   });
 
   document.querySelectorAll('[data-acao="abrir-devolucao"]').forEach(el => {
     el.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      const pedidoId = el.closest(".linha-pedido").dataset.id;
       const area = el.closest("[data-area-acoes]");
       area.innerHTML = formularioDevolucao();
-      ligarBotoesForm(area, el.closest(".linha-pedido").dataset.id);
+      ligarBotoesForm(area, pedidoId);
     });
   });
 }
