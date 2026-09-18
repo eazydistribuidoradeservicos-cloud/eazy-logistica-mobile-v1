@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<base target="_top">
+<style>
+  :root {
+    --bg: #0f1117;
+    --card-bg: #1a1d29;
+    --border: #2a2e3d;
+    --text: #e8e9ed;
+    --text-secondary: #9a9db0;
+    --verde: #3ddc84;
+    --amarelo: #ffd166;
+    --vermelho: #ff5c5c;
+    --azul: #5ab4ff;
+    --cinza: #6b6f80;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+  body { padding: 12px 10px 40px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .subtitulo { color: var(--text-secondary); font-size: 12px; margin: 0 0 12px; }
+
+  .filtros {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  .filtro-chip {
+    flex: 0 0 auto;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .filtro-chip.ativo { border-color: var(--azul); color: var(--azul); background: rgba(90,180,255,0.12); }
+  .filtro-chip .n { background: rgba(255,255,255,0.1); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+
+  .linha-pedido {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--cinza);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .linha-pedido.farol-verde { border-left-color: var(--verde); }
+  .linha-pedido.farol-amarelo { border-left-color: var(--amarelo); }
+  .linha-pedido.farol-vermelho { border-left-color: var(--vermelho); }
+
+  .linha-topo {
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+  .dot.verde { background: var(--verde); }
+  .dot.amarelo { background: var(--amarelo); }
+  .dot.vermelho { background: var(--vermelho); }
+  .dot.cinza { background: var(--cinza); }
+  .linha-info { flex: 1; min-width: 0; }
+  .linha-info .num { font-weight: 700; font-size: 14px; }
+  .linha-info .meta { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .linha-tempo { font-size: 11px; color: var(--text-secondary); flex: 0 0 auto; text-align: right; }
+
+  .linha-detalhe {
+    display: none;
+    padding: 0 14px 14px;
+    border-top: 1px solid var(--border);
+  }
+  .linha-pedido.aberta .linha-detalhe { display: block; }
+  .linha-detalhe p { font-size: 13px; color: var(--text-secondary); margin: 8px 0; line-height: 1.5; }
+  .linha-detalhe b { color: var(--text); }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .btn-avancar {
+    width: 100%;
+    padding: 14px;
+    background: var(--azul);
+    color: #0f1117;
+    margin-top: 6px;
+  }
+  .btn-avancar:disabled { opacity: 0.5; }
+  .btn-secundario {
+    flex: 1;
+    padding: 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 8px;
+  }
+  .btn-secundario.vermelho { color: var(--vermelho); border-color: var(--vermelho); }
+  .linha-acoes-secundarias { display: flex; gap: 8px; margin-top: 8px; }
+
+  .form-inline { margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; }
+  .form-inline label { display: block; font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px; }
+  .form-inline select, .form-inline textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .form-inline textarea { resize: vertical; min-height: 60px; }
+  .form-inline .form-botoes { display: flex; gap: 8px; margin-top: 10px; }
+  .form-inline .form-botoes button { flex: 1; padding: 10px; }
+  .btn-confirmar { background: var(--vermelho); color: #0f1117; }
+  .btn-cancelar { background: var(--border); color: var(--text); }
+
+  .vazio, .carregando { text-align: center; color: var(--text-secondary); padding: 40px 0; font-size: 14px; }
+  .erro { color: var(--vermelho); padding: 16px; text-align: center; font-size: 13px; }
+</style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+    <div>
+      <h1>🚚 Status de Entregas — EAZY</h1>
+      <p class="subtitulo" id="subtitulo">Carregando pedidos...</p>
+    </div>
+    <button type="button" id="btnAtualizar" style="background:transparent; border:1px solid var(--border); color:var(--text-secondary); padding:8px 12px; font-size:13px; flex:0 0 auto;">🔄 Atualizar</button>
+  </div>
+
+  <div class="filtros" id="filtros"></div>
+  <div id="lista"><p class="carregando">Carregando...</p></div>
+  <p style="text-align:center; color:var(--text-secondary); font-size:10px; margin-top:20px;" id="buildInfo"></p>
+
+<script>
+// Identificador de versão visível na tela (rodapé) — serve pra confirmar
+// se o navegador está rodando o código novo ou uma cópia em cache do
+// Apps Script, antes de investigar qualquer outra coisa.
+const BUILD_INFO = "mobile-v7-2026-09-17";
+document.getElementById("buildInfo").textContent = BUILD_INFO;
+
+// Captura QUALQUER erro não tratado (inclusive de dentro de listener de
+// clique) e mostra na própria tela, com a versão do build — não depender
+// de abrir o console do navegador pra reportar problema. Números de
+// linha/coluna do erro do navegador podem não corresponder 1:1 a este
+// arquivo (o Apps Script pode reprocessar o HTML antes de servir).
+window.addEventListener("error", (ev) => {
+  const msg = (ev && ev.message) || "erro desconhecido";
+  const local = `${ev && ev.lineno || "?"}:${ev && ev.colno || "?"}`;
+  const areaLista = document.getElementById("lista");
+  if (areaLista) {
+    areaLista.innerHTML =
+      `<p class="erro">Erro na página: ${msg}<br><small>(${local} · ${BUILD_INFO})</small></p>` +
+      areaLista.innerHTML;
+  }
+});
+
+// Injetados pelo Code.gs via HtmlService.createTemplateFromFile — nunca
+// use google.script.run aqui (instável em navegador mobile, ver Code.gs).
+const WEB_APP_URL = <?!= JSON.stringify(baseUrl) ?>;
+const TOKEN = <?!= JSON.stringify(token) ?>;
+
+// Mesmas regras de SLA/farol de logistica/painel-logistica.html — não mudam aqui.
+const SLA_TEMPO_PARADO = {
+  "Triagem":         { verde: 2,  amarelo: 6 },
+  "Separado":        { verde: 4,  amarelo: 12 },
+  "Embalado":        { verde: 4,  amarelo: 12 },
+  "Etiqueta gerada": { verde: 12, amarelo: 24 },
+};
+const ETAPAS_SEM_SLA = ["Recebido", "Entregue"];
+// "Devolução" deixou de ser terminal (2026-09-17) — agora tem uma ação
+// própria ("Devolução recebida", confirmando retorno físico do produto)
+// antes de sair da lista ativa.
+const ETAPAS_TERMINAIS = ["Entregue", "Devolução recebida"];
+const ETAPAS_SEQUENCIAIS = ["Recebido", "Triagem", "Separado", "Embalado", "Etiqueta gerada", "Postado", "Em trânsito", "Entregue"];
+const SUB_MOTIVOS_DEVOLUCAO = ["Cliente recusou", "Avaria", "Endereço incorreto", "Produto errado enviado", "Prazo extrapolado (cliente desistiu)", "Outro"];
+
+function calcularFarolTempoParado(etapa, timestampEntrada) {
+  const limites = SLA_TEMPO_PARADO[etapa];
+  if (!limites || !timestampEntrada) return { cor: "cinza", texto: "sem dado de SLA" };
+  const entrada = new Date(timestampEntrada);
+  if (isNaN(entrada)) return { cor: "cinza", texto: "timestamp inválido" };
+  const horasParado = (Date.now() - entrada.getTime()) / 3600000;
+  let cor = "verde";
+  if (horasParado > limites.amarelo) cor = "vermelho";
+  else if (horasParado > limites.verde) cor = "amarelo";
+  const texto = horasParado < 48 ? `${horasParado.toFixed(1)}h parado` : `${(horasParado / 24).toFixed(1)}d parado`;
+  return { cor, texto };
+}
+
+function calcularFarolPostadoTransito(dataEstimadaEntrega) {
+  if (!dataEstimadaEntrega) return { cor: "cinza", texto: "sem data estimada" };
+  const estimada = new Date(dataEstimadaEntrega);
+  if (isNaN(estimada)) return { cor: "cinza", texto: "data estimada inválida" };
+  const diasDeAtraso = (Date.now() - estimada.getTime()) / 86400000;
+  let cor = "verde", texto = "dentro do prazo";
+  if (diasDeAtraso > 2) { cor = "vermelho"; texto = `${diasDeAtraso.toFixed(1)}d além do prazo`; }
+  else if (diasDeAtraso > 1) { cor = "amarelo"; texto = `${diasDeAtraso.toFixed(1)}d além do prazo`; }
+  else if (diasDeAtraso > 0) { cor = "amarelo"; texto = "no limite do prazo"; }
+  return { cor, texto };
+}
+
+function calcularFarol(p) {
+  const etapa = p.status_operacional;
+  if (etapa === "Postado" || etapa === "Em trânsito") return calcularFarolPostadoTransito(p.data_estimada_entrega);
+  if (ETAPAS_SEM_SLA.includes(etapa) || ETAPAS_TERMINAIS.includes(etapa) || etapa === "Problema" || etapa === "Devolução") {
+    return { cor: "cinza", texto: null };
+  }
+  return calcularFarolTempoParado(etapa, p.timestamp_entrada_status_atual);
+}
+
+function proximaEtapa(etapaAtual) {
+  const i = ETAPAS_SEQUENCIAIS.indexOf(etapaAtual);
+  if (i === -1 || i === ETAPAS_SEQUENCIAIS.length - 1) return null;
+  return ETAPAS_SEQUENCIAIS[i + 1];
+}
+
+let TODOS_PEDIDOS = [];
+let FILTRO_ATUAL = "todos";
+let ABERTO_ID = null;
+
+function ordemFarol(cor) { return { vermelho: 0, amarelo: 1, verde: 2, cinza: 3 }[cor]; }
+
+// Pedidos em etapa terminal (Entregue / Devolução recebida) nunca aparecem
+// nesta tela — a equipe não tem mais ação a tomar neles. Por isso os
+// contadores dos chips usam a mesma base filtrada da lista, senão o número
+// do chip "Todos" bateria diferente do que aparece embaixo.
+function pedidosAtivos() {
+  const lista = Array.isArray(TODOS_PEDIDOS) ? TODOS_PEDIDOS : [];
+  return lista.filter(p => p && !ETAPAS_TERMINAIS.includes(p.status_operacional));
+}
+
+function renderizarFiltros() {
+  const ativos = pedidosAtivos();
+  const contagem = { todos: ativos.length, vermelho: 0, amarelo: 0, verde: 0 };
+  ativos.forEach(p => {
+    const cor = calcularFarol(p).cor;
+    if (contagem[cor] !== undefined) contagem[cor]++;
+  });
+  const chips = [
+    { key: "todos", label: "Todos", n: contagem.todos },
+    { key: "vermelho", label: "🔴 Crítico", n: contagem.vermelho },
+    { key: "amarelo", label: "🟡 Atenção", n: contagem.amarelo },
+    { key: "verde", label: "🟢 No prazo", n: contagem.verde },
+  ];
+  document.getElementById("filtros").innerHTML = chips.map(c =>
+    `<div class="filtro-chip ${FILTRO_ATUAL === c.key ? 'ativo' : ''}" data-filtro="${c.key}">${c.label} <span class="n">${c.n}</span></div>`
+  ).join("");
+  document.querySelectorAll(".filtro-chip").forEach(el => {
+    el.addEventListener("click", () => { FILTRO_ATUAL = el.dataset.filtro; ABERTO_ID = null; renderizar(); });
+  });
+}
+
+function detalheEspecial(p) {
+  if (p.status_operacional === "Devolução") {
+    let h = `<p><b>Data devolução:</b> ${p.data_devolucao || "—"} · <b>Sub-motivo:</b> ${p.sub_motivo_devolucao || "—"}</p>`;
+    if (p.motivo_devolucao) h += `<p><b>Observação:</b> ${p.motivo_devolucao}</p>`;
+    return h;
+  }
+  if (p.status_operacional === "Problema") {
+    return `<p><b>Motivo:</b> ${p.motivo_problema || "—"} · <b>Etapa de origem:</b> ${p.status_pre_problema || "—"}</p>`;
+  }
+  return "";
+}
+
+function acoesParaPedido(p) {
+  // Devolução já registrada: só falta confirmar que o produto voltou
+  // fisicamente — reaproveita o mesmo botão/handler "avancar" de sempre,
+  // só que apontando pro valor novo de status em vez da próxima etapa
+  // sequencial (Devolução não faz parte de ETAPAS_SEQUENCIAIS).
+  if (p.status_operacional === "Devolução") {
+    return `<button class="btn-avancar" data-acao="avancar" data-proxima="Devolução recebida">Marcar devolução recebida</button>`;
+  }
+
+  const proxima = proximaEtapa(p.status_operacional);
+  let html = "";
+  if (proxima) {
+    html += `<button class="btn-avancar" data-acao="avancar" data-proxima="${proxima}">Marcar: ${proxima}</button>`;
+  }
+  if (p.status_operacional !== "Entregue" && p.status_operacional !== "Problema") {
+    html += `<div class="linha-acoes-secundarias">
+      <button class="btn-secundario vermelho" data-acao="abrir-problema">Reportar problema</button>
+      <button class="btn-secundario" data-acao="abrir-devolucao">Registrar devolução</button>
+    </div>`;
+  }
+  return html;
+}
+
+function formularioProblema() {
+  return `<div class="form-inline" data-form="problema">
+    <label>O que aconteceu? (obrigatório)</label>
+    <textarea data-campo="motivo_problema" placeholder="Ex: endereço não encontrado, cliente ausente..."></textarea>
+    <div class="form-botoes">
+      <button class="btn-cancelar" data-acao="cancelar-form">Cancelar</button>
+      <button class="btn-confirmar" data-acao="confirmar-problema">Confirmar problema</button>
+    </div>
+  </div>`;
+}
+
+function formularioDevolucao() {
+  const opcoes = SUB_MOTIVOS_DEVOLUCAO.map(m => `<option value="${m}">${m}</option>`).join("");
+  return `<div class="form-inline" data-form="devolucao">
+    <label>Sub-motivo (obrigatório)</label>
+    <select data-campo="sub_motivo_devolucao">${opcoes}</select>
+    <label>Observação (obrigatória se "Outro")</label>
+    <textarea data-campo="motivo_devolucao" placeholder="Detalhe o motivo..."></textarea>
+    <div class="form-botoes">
+      <button class="btn-cancelar" data-acao="cancelar-form">Cancelar</button>
+      <button class="btn-confirmar" data-acao="confirmar-devolucao">Confirmar devolução</button>
+    </div>
+  </div>`;
+}
+
+function renderizar() {
+  renderizarFiltros();
+
+  let filtrados = pedidosAtivos();
+  if (FILTRO_ATUAL !== "todos") {
+    filtrados = filtrados.filter(p => calcularFarol(p).cor === FILTRO_ATUAL);
+  }
+  filtrados.sort((a, b) => ordemFarol(calcularFarol(a).cor) - ordemFarol(calcularFarol(b).cor));
+
+  const listaEl = document.getElementById("lista");
+  if (filtrados.length === 0) {
+    listaEl.innerHTML = '<p class="vazio">Nenhum pedido nesse filtro.</p>';
+    return;
+  }
+
+  listaEl.innerHTML = filtrados.map(p => {
+    const farol = calcularFarol(p);
+    const aberta = String(p.pedido_id) === String(ABERTO_ID);
+    return `
+      <div class="linha-pedido ${farol.cor !== 'cinza' ? 'farol-' + farol.cor : ''} ${aberta ? 'aberta' : ''}" data-id="${p.pedido_id}">
+        <div class="linha-topo" data-acao="expandir">
+          <span class="dot ${farol.cor}"></span>
+          <div class="linha-info">
+            <div class="num">${p.pedido_id} · ${p.canal || '—'}</div>
+            <div class="meta">${p.status_operacional} — ${p.produto || ''}</div>
+          </div>
+          <div class="linha-tempo">${farol.texto || ''}</div>
+        </div>
+        <div class="linha-detalhe">
+          <p><b>Cliente:</b> ${p.cliente || '—'}</p>
+          <p><b>Produto:</b> ${p.produto || '—'}</p>
+          ${detalheEspecial(p)}
+          <div data-area-acoes>${acoesParaPedido(p)}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  document.querySelectorAll('[data-acao="expandir"]').forEach(el => {
+    el.addEventListener("click", () => {
+      const card = el.closest(".linha-pedido");
+      const id = card.dataset.id;
+      ABERTO_ID = (String(ABERTO_ID) === String(id)) ? null : id;
+      renderizar();
+    });
+  });
+
+  document.querySelectorAll('[data-acao="avancar"]').forEach(el => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const card = el.closest(".linha-pedido");
+      const proxima = el.dataset.proxima;
+      marcarEtapa(card.dataset.id, proxima);
+    });
+  });
+
+  document.querySelectorAll('[data-acao="abrir-problema"]').forEach(el => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const area = el.closest("[data-area-acoes]");
+      area.innerHTML = formularioProblema();
+      ligarBotoesForm(area, el.closest(".linha-pedido").dataset.id);
+    });
+  });
+
+  document.querySelectorAll('[data-acao="abrir-devolucao"]').forEach(el => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const area = el.closest("[data-area-acoes]");
+      area.innerHTML = formularioDevolucao();
+      ligarBotoesForm(area, el.closest(".linha-pedido").dataset.id);
+    });
+  });
+}
+
+function ligarBotoesForm(area, pedidoId) {
+  const cancelar = area.querySelector('[data-acao="cancelar-form"]');
+  if (cancelar) cancelar.addEventListener("click", (ev) => { ev.stopPropagation(); renderizar(); });
+
+  const confirmarProblema = area.querySelector('[data-acao="confirmar-problema"]');
+  if (confirmarProblema) {
+    confirmarProblema.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const motivo = area.querySelector('[data-campo="motivo_problema"]').value.trim();
+      if (!motivo) { alert("Descreva o problema antes de confirmar."); return; }
+      const pedido = TODOS_PEDIDOS.find(p => String(p.pedido_id) === String(pedidoId));
+      gravar({
+        pedido_id: pedidoId,
+        status_operacional: "Problema",
+        status_pre_problema: pedido ? pedido.status_operacional : "",
+        motivo_problema: motivo,
+      });
+    });
+  }
+
+  const confirmarDevolucao = area.querySelector('[data-acao="confirmar-devolucao"]');
+  if (confirmarDevolucao) {
+    confirmarDevolucao.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const subMotivo = area.querySelector('[data-campo="sub_motivo_devolucao"]').value;
+      const observacao = area.querySelector('[data-campo="motivo_devolucao"]').value.trim();
+      if (subMotivo === "Outro" && !observacao) {
+        alert('Observação é obrigatória quando o sub-motivo é "Outro".');
+        return;
+      }
+      gravar({
+        pedido_id: pedidoId,
+        status_operacional: "Devolução",
+        sub_motivo_devolucao: subMotivo,
+        motivo_devolucao: observacao,
+        data_devolucao: new Date().toISOString().slice(0, 10),
+      });
+    });
+  }
+}
+
+function marcarEtapa(pedidoId, novaEtapa) {
+  gravar({ pedido_id: pedidoId, status_operacional: novaEtapa });
+}
+
+function gravar(camposParciais) {
+  const payload = Object.assign({ action: "upsert_pedido", origem: "mobile-entrega", token: TOKEN }, camposParciais);
+  document.getElementById("subtitulo").textContent = "Salvando...";
+  // Content-Type text/plain de propósito: evita o preflight de CORS que o
+  // Apps Script não sabe responder (não tem doOptions) — ele lê o corpo
+  // como JSON de qualquer forma, o Content-Type aqui é só pra passar pelo
+  // navegador sem preflight.
+  fetch(WEB_APP_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload),
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      if (!data.ok) throw new Error(data.erro || "erro desconhecido ao gravar");
+      ABERTO_ID = null;
+      carregar();
+    })
+    .catch((err) => {
+      alert("Erro ao salvar: " + err.message);
+      carregar();
+    });
+}
+
+function carregar() {
+  return fetch(`${WEB_APP_URL}?action=list&token=${encodeURIComponent(TOKEN)}`)
+    .then((res) => res.json())
+    .then((data) => {
+      if (!Array.isArray(data.pedidos)) {
+        throw new Error(data.erro || "resposta inesperada do Apps Script");
+      }
+      TODOS_PEDIDOS = data.pedidos;
+      document.getElementById("subtitulo").textContent =
+        `${TODOS_PEDIDOS.length} pedido(s) — atualizado às ${new Date().toLocaleTimeString("pt-BR")}`;
+      renderizar();
+    })
+    .catch((err) => {
+      document.getElementById("lista").innerHTML =
+        `<p class="erro">Erro ao carregar pedidos: ${err.message}</p>`;
+      document.getElementById("subtitulo").textContent = "Erro ao carregar — toque em Atualizar.";
+    });
+}
+
+// Feedback visual explícito no botão — sem isso, um clique que não muda
+// nenhum dado parece "não ter feito nada" na tela.
+document.getElementById("btnAtualizar").addEventListener("click", () => {
+  const btn = document.getElementById("btnAtualizar");
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Atualizando...";
+  carregar().finally(() => {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  });
+});
+carregar();
+</script>
+</body>
+</html>
