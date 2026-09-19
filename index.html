@@ -29,28 +29,17 @@
   h1 { font-size: 18px; margin: 0 0 2px; }
   .subtitulo { color: var(--text-secondary); font-size: 12px; margin: 0 0 12px; }
 
-  .filtros {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    padding-bottom: 8px;
-    margin-bottom: 10px;
-  }
-  .filtro-chip {
-    flex: 0 0 auto;
+  .filtros { margin-bottom: 10px; }
+  .filtro-select {
+    width: 100%;
     background: var(--card-bg);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 10px 14px;
-    border-radius: 999px;
-    font-size: 13px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 14px;
     font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 6px;
   }
-  .filtro-chip.ativo { border-color: var(--azul); color: var(--azul); background: rgba(90,180,255,0.12); }
-  .filtro-chip .n { background: rgba(255,255,255,0.1); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
 
   .linha-pedido {
     background: var(--card-bg);
@@ -77,6 +66,17 @@
   .dot.cinza { background: var(--cinza); }
   .linha-info { flex: 1; min-width: 0; }
   .linha-info .num { font-weight: 700; font-size: 14px; }
+  .badge-novo {
+    display: inline-block;
+    background: var(--azul);
+    color: #0f1117;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 999px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
   .linha-info .meta { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .linha-tempo { font-size: 11px; color: var(--text-secondary); flex: 0 0 auto; text-align: right; }
 
@@ -105,8 +105,9 @@
   }
   .btn-avancar:disabled { opacity: 0.5; }
   .btn-secundario {
-    flex: 1;
-    padding: 10px;
+    flex: 1 1 28%;
+    min-width: 96px;
+    padding: 10px 6px;
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-secondary);
@@ -115,7 +116,7 @@
     border-radius: 8px;
   }
   .btn-secundario.vermelho { color: var(--vermelho); border-color: var(--vermelho); }
-  .linha-acoes-secundarias { display: flex; gap: 8px; margin-top: 8px; }
+  .linha-acoes-secundarias { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 
   .form-inline { margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; }
   .form-inline label { display: block; font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px; }
@@ -200,7 +201,7 @@
 // Identificador de versão visível na tela (rodapé) — serve pra confirmar
 // se o navegador está rodando o código novo, antes de investigar qualquer
 // outra coisa.
-const BUILD_INFO = "mobile-ghpages-v4-2026-09-18";
+const BUILD_INFO = "mobile-ghpages-v5-2026-09-19";
 document.getElementById("buildInfo").textContent = BUILD_INFO;
 
 // Captura QUALQUER erro não tratado (inclusive de dentro de listener de
@@ -259,6 +260,9 @@ const ETAPAS_TERMINAIS = ["Entregue", "Devolução recebida"];
 // "Separado" (antes era o contrário).
 const ETAPAS_SEQUENCIAIS = ["Recebido", "Triagem", "Etiqueta gerada", "Separado", "Embalado", "Postado", "Em trânsito", "Entregue"];
 const SUB_MOTIVOS_DEVOLUCAO = ["Cliente recusou", "Avaria", "Endereço incorreto", "Produto errado enviado", "Prazo extrapolado (cliente desistiu)", "Outro"];
+// Status filtráveis na tela mobile — as 8 sequenciais MENOS "Entregue" (que
+// nunca aparece aqui, pedidosAtivos() já remove terminais) + os 2 paralelos.
+const STATUS_FILTRAVEIS = ETAPAS_SEQUENCIAIS.filter(e => e !== "Entregue").concat(["Problema", "Devolução"]);
 
 function calcularFarolTempoParado(etapa, timestampEntrada) {
   const limites = SLA_TEMPO_PARADO[etapa];
@@ -304,12 +308,20 @@ let TODOS_PEDIDOS = [];
 let FILTRO_ATUAL = "todos";
 let ABERTO_ID = null;
 
-function ordemFarol(cor) { return { vermelho: 0, amarelo: 1, verde: 2, cinza: 3 }[cor]; }
+// Ordem de chegada: mais novo primeiro. data_pedido do Bling só tem dia (sem
+// hora), então pedidos do mesmo dia empatam — desempata por pedido_id
+// decrescente (IDs do Bling crescem na ordem de criação).
+function compararPorChegada(a, b) {
+  const da = a.data_pedido ? new Date(a.data_pedido).getTime() : 0;
+  const db = b.data_pedido ? new Date(b.data_pedido).getTime() : 0;
+  if (db !== da) return db - da;
+  return Number(b.pedido_id) - Number(a.pedido_id);
+}
 
 // Pedidos em etapa terminal (Entregue / Devolução recebida) nunca aparecem
-// nesta tela — a equipe não tem mais ação a tomar neles. Por isso os
-// contadores dos chips usam a mesma base filtrada da lista, senão o número
-// do chip "Todos" bateria diferente do que aparece embaixo.
+// nesta tela — a equipe não tem mais ação a tomar neles. Por isso as
+// contagens do dropdown usam a mesma base filtrada da lista, senão o número
+// de "Todos" bateria diferente do que aparece embaixo.
 function pedidosAtivos() {
   const lista = Array.isArray(TODOS_PEDIDOS) ? TODOS_PEDIDOS : [];
   return lista.filter(p => p && !ETAPAS_TERMINAIS.includes(p.status_operacional));
@@ -317,22 +329,23 @@ function pedidosAtivos() {
 
 function renderizarFiltros() {
   const ativos = pedidosAtivos();
-  const contagem = { todos: ativos.length, vermelho: 0, amarelo: 0, verde: 0 };
+  const contagem = { todos: ativos.length };
+  STATUS_FILTRAVEIS.forEach(s => { contagem[s] = 0; });
   ativos.forEach(p => {
-    const cor = calcularFarol(p).cor;
-    if (contagem[cor] !== undefined) contagem[cor]++;
+    if (contagem[p.status_operacional] !== undefined) contagem[p.status_operacional]++;
   });
-  const chips = [
-    { key: "todos", label: "Todos", n: contagem.todos },
-    { key: "vermelho", label: "🔴 Crítico", n: contagem.vermelho },
-    { key: "amarelo", label: "🟡 Atenção", n: contagem.amarelo },
-    { key: "verde", label: "🟢 No prazo", n: contagem.verde },
-  ];
-  document.getElementById("filtros").innerHTML = chips.map(c =>
-    `<div class="filtro-chip ${FILTRO_ATUAL === c.key ? 'ativo' : ''}" data-filtro="${c.key}">${c.label} <span class="n">${c.n}</span></div>`
-  ).join("");
-  document.querySelectorAll(".filtro-chip").forEach(el => {
-    el.addEventListener("click", () => { FILTRO_ATUAL = el.dataset.filtro; ABERTO_ID = null; renderizar(); });
+
+  const opcoes = [`<option value="todos">Todos (${contagem.todos})</option>`]
+    .concat(STATUS_FILTRAVEIS.map(s => `<option value="${s}">${s} (${contagem[s]})</option>`))
+    .join("");
+
+  document.getElementById("filtros").innerHTML =
+    `<select class="filtro-select" id="filtroStatus">${opcoes}</select>`;
+  document.getElementById("filtroStatus").value = FILTRO_ATUAL;
+  document.getElementById("filtroStatus").addEventListener("change", (ev) => {
+    FILTRO_ATUAL = ev.target.value;
+    ABERTO_ID = null;
+    renderizar();
   });
 }
 
@@ -364,6 +377,7 @@ function acoesParaPedido(p) {
   }
   if (p.status_operacional !== "Entregue" && p.status_operacional !== "Problema") {
     html += `<div class="linha-acoes-secundarias">
+      <button class="btn-secundario" data-acao="abrir-corrigir">Corrigir etapa</button>
       <button class="btn-secundario vermelho" data-acao="abrir-problema">Reportar problema</button>
       <button class="btn-secundario" data-acao="abrir-devolucao">Registrar devolução</button>
     </div>`;
@@ -396,14 +410,28 @@ function formularioDevolucao() {
   </div>`;
 }
 
+function formularioCorrigirEtapa(etapaAtual) {
+  const opcoes = ETAPAS_SEQUENCIAIS.map(e =>
+    `<option value="${e}" ${e === etapaAtual ? "selected" : ""}>${e}</option>`
+  ).join("");
+  return `<div class="form-inline" data-form="corrigir">
+    <label>Corrigir para qual etapa? (qualquer uma das 8)</label>
+    <select data-campo="nova_etapa">${opcoes}</select>
+    <div class="form-botoes">
+      <button class="btn-cancelar" data-acao="cancelar-form">Cancelar</button>
+      <button class="btn-confirmar" data-acao="confirmar-corrigir">Confirmar correção</button>
+    </div>
+  </div>`;
+}
+
 function renderizar() {
   renderizarFiltros();
 
   let filtrados = pedidosAtivos();
   if (FILTRO_ATUAL !== "todos") {
-    filtrados = filtrados.filter(p => calcularFarol(p).cor === FILTRO_ATUAL);
+    filtrados = filtrados.filter(p => p.status_operacional === FILTRO_ATUAL);
   }
-  filtrados.sort((a, b) => ordemFarol(calcularFarol(a).cor) - ordemFarol(calcularFarol(b).cor));
+  filtrados.sort(compararPorChegada);
 
   const listaEl = document.getElementById("lista");
   if (filtrados.length === 0) {
@@ -419,7 +447,7 @@ function renderizar() {
         <div class="linha-topo" data-acao="expandir">
           <span class="dot ${farol.cor}"></span>
           <div class="linha-info">
-            <div class="num">${p.pedido_id} · ${p.canal || '—'}</div>
+            <div class="num">${p.pedido_id} · ${p.canal || '—'}${p.status_operacional === "Recebido" ? ' <span class="badge-novo">Novo</span>' : ''}</div>
             <div class="meta">${p.status_operacional} — ${p.produto || ''}</div>
           </div>
           <div class="linha-tempo">${farol.texto || ''}</div>
@@ -475,6 +503,17 @@ function renderizar() {
       ligarBotoesForm(area, pedidoId);
     });
   });
+
+  document.querySelectorAll('[data-acao="abrir-corrigir"]').forEach(el => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const pedidoId = el.closest(".linha-pedido").dataset.id;
+      const pedido = TODOS_PEDIDOS.find(p => String(p.pedido_id) === String(pedidoId));
+      const area = el.closest("[data-area-acoes]");
+      area.innerHTML = formularioCorrigirEtapa(pedido ? pedido.status_operacional : "");
+      ligarBotoesForm(area, pedidoId);
+    });
+  });
 }
 
 function ligarBotoesForm(area, pedidoId) {
@@ -514,6 +553,15 @@ function ligarBotoesForm(area, pedidoId) {
         motivo_devolucao: observacao,
         data_devolucao: new Date().toISOString().slice(0, 10),
       });
+    });
+  }
+
+  const confirmarCorrigir = area.querySelector('[data-acao="confirmar-corrigir"]');
+  if (confirmarCorrigir) {
+    confirmarCorrigir.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const novaEtapa = area.querySelector('[data-campo="nova_etapa"]').value;
+      gravar({ pedido_id: pedidoId, status_operacional: novaEtapa });
     });
   }
 }
