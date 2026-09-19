@@ -29,6 +29,19 @@
   h1 { font-size: 18px; margin: 0 0 2px; }
   .subtitulo { color: var(--text-secondary); font-size: 12px; margin: 0 0 12px; }
 
+  .abas { display: flex; gap: 6px; margin-bottom: 10px; }
+  .aba-btn {
+    flex: 1;
+    padding: 10px 4px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 8px;
+  }
+  .aba-btn.ativa { border-color: var(--azul); color: var(--azul); background: rgba(90,180,255,0.12); }
+
   .filtros { margin-bottom: 10px; }
   .filtro-select {
     width: 100%;
@@ -39,6 +52,7 @@
     border-radius: 10px;
     font-size: 14px;
     font-weight: 600;
+    margin-bottom: 6px;
   }
 
   .linha-pedido {
@@ -96,6 +110,7 @@
     font-weight: 700;
     font-size: 15px;
   }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-avancar {
     width: 100%;
     padding: 14px;
@@ -103,7 +118,6 @@
     color: #0f1117;
     margin-top: 6px;
   }
-  .btn-avancar:disabled { opacity: 0.5; }
   .btn-secundario {
     flex: 1 1 28%;
     min-width: 96px;
@@ -192,6 +206,7 @@
       <button type="button" id="btnAtualizar" style="background:transparent; border:1px solid var(--border); color:var(--text-secondary); padding:8px 12px; font-size:13px; flex:0 0 auto;">🔄 Atualizar</button>
     </div>
 
+    <div class="abas" id="abas"></div>
     <div class="filtros" id="filtros"></div>
     <div id="lista"><p class="carregando">Carregando...</p></div>
     <p style="text-align:center; color:var(--text-secondary); font-size:10px; margin-top:20px;" id="buildInfo"></p>
@@ -201,7 +216,7 @@
 // Identificador de versão visível na tela (rodapé) — serve pra confirmar
 // se o navegador está rodando o código novo, antes de investigar qualquer
 // outra coisa.
-const BUILD_INFO = "mobile-ghpages-v5-2026-09-19";
+const BUILD_INFO = "mobile-ghpages-v7-2026-09-19";
 document.getElementById("buildInfo").textContent = BUILD_INFO;
 
 // Captura QUALQUER erro não tratado (inclusive de dentro de listener de
@@ -254,8 +269,10 @@ const SLA_TEMPO_PARADO = {
 const ETAPAS_SEM_SLA = ["Recebido", "Entregue"];
 // "Devolução" deixou de ser terminal (2026-09-17) — agora tem uma ação
 // própria ("Devolução recebida", confirmando retorno físico do produto)
-// antes de sair da lista ativa.
-const ETAPAS_TERMINAIS = ["Entregue", "Devolução recebida"];
+// antes de sair da lista ativa. "Cancelado" (2026-09-19) — resultado
+// possível ao resolver um "Problema" quando o pedido não vai continuar o
+// fluxo normal (ex: valor errado, pedido não vai mais sair).
+const ETAPAS_TERMINAIS = ["Entregue", "Devolução recebida", "Cancelado"];
 // Ordem atualizada em 2026-09-18: "Etiqueta gerada" passou a vir ANTES de
 // "Separado" (antes era o contrário).
 const ETAPAS_SEQUENCIAIS = ["Recebido", "Triagem", "Etiqueta gerada", "Separado", "Embalado", "Postado", "Em trânsito", "Entregue"];
@@ -263,6 +280,10 @@ const SUB_MOTIVOS_DEVOLUCAO = ["Cliente recusou", "Avaria", "Endereço incorreto
 // Status filtráveis na tela mobile — as 8 sequenciais MENOS "Entregue" (que
 // nunca aparece aqui, pedidosAtivos() já remove terminais) + os 2 paralelos.
 const STATUS_FILTRAVEIS = ETAPAS_SEQUENCIAIS.filter(e => e !== "Entregue").concat(["Problema", "Devolução"]);
+// Abas "Concluídos" e "Cancelados" (2026-09-19) — separam os dois tipos de
+// pedido finalizado em vez de misturar tudo numa aba única de histórico.
+const STATUS_CONCLUIDOS = ["Entregue", "Devolução recebida"];
+const STATUS_CANCELADOS = ["Cancelado"];
 
 function calcularFarolTempoParado(etapa, timestampEntrada) {
   const limites = SLA_TEMPO_PARADO[etapa];
@@ -307,6 +328,10 @@ function proximaEtapa(etapaAtual) {
 let TODOS_PEDIDOS = [];
 let FILTRO_ATUAL = "todos";
 let ABERTO_ID = null;
+// Aba ativa da tela: "ativos" | "concluidos" | "cancelados".
+let VISTA_ATUAL = "ativos";
+let BUSCA_HISTORICO = "";
+let JANELA_HISTORICO = "7";
 
 // Ordem de chegada: mais novo primeiro. data_pedido do Bling só tem dia (sem
 // hora), então pedidos do mesmo dia empatam — desempata por pedido_id
@@ -318,8 +343,37 @@ function compararPorChegada(a, b) {
   return Number(b.pedido_id) - Number(a.pedido_id);
 }
 
-// Pedidos em etapa terminal (Entregue / Devolução recebida) nunca aparecem
-// nesta tela — a equipe não tem mais ação a tomar neles. Por isso as
+// Data em que um pedido concluído/cancelado saiu da lista ativa — usa
+// data_entrega quando existe (Entregue), senão o timestamp da troca de
+// status mais recente (cobre Devolução recebida e Cancelado, que reiniciam
+// timestamp_entrada_status_atual no momento em que entram nesse status).
+function dataConclusao(p) {
+  return p.data_entrega || p.timestamp_entrada_status_atual || "";
+}
+
+// quantidade/valor só existem pra pedidos criados por bling-pedidos-sync.js
+// a partir de 2026-09-19 — pedido mais antigo que isso não tem esse dado,
+// por isso o "—" em vez de tentar inventar/estimar.
+function formatarQuantidade(q) {
+  return (q === undefined || q === null || q === "") ? "—" : q;
+}
+function formatarValor(v) {
+  if (v === undefined || v === null || v === "") return "—";
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function compararPorConclusao(a, b) {
+  const da = dataConclusao(a) ? new Date(dataConclusao(a)).getTime() : 0;
+  const db = dataConclusao(b) ? new Date(dataConclusao(b)).getTime() : 0;
+  if (isNaN(da) && isNaN(db)) return 0;
+  return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
+}
+
+// Pedidos em etapa terminal (Entregue / Devolução recebida / Cancelado)
+// nunca aparecem na aba "Ativos" — a equipe não tem mais ação a tomar
+// neles ali (ficam nas abas "Concluídos"/"Cancelados"). Por isso as
 // contagens do dropdown usam a mesma base filtrada da lista, senão o número
 // de "Todos" bateria diferente do que aparece embaixo.
 function pedidosAtivos() {
@@ -327,7 +381,47 @@ function pedidosAtivos() {
   return lista.filter(p => p && !ETAPAS_TERMINAIS.includes(p.status_operacional));
 }
 
-function renderizarFiltros() {
+// Busca (por pedido ou cliente) ignora a janela de data; sem busca, aplica
+// o corte de dias. Pedido sem data de conclusão nunca é escondido pelo
+// corte (evita sumir pedido por dado ausente).
+function aplicarFiltroHistorico(lista) {
+  const busca = BUSCA_HISTORICO.trim().toLowerCase();
+  if (busca) {
+    return lista.filter(p =>
+      String(p.pedido_id || "").toLowerCase().includes(busca) ||
+      String(p.cliente || "").toLowerCase().includes(busca)
+    );
+  }
+  if (JANELA_HISTORICO === "todos") return lista;
+  const corte = Date.now() - Number(JANELA_HISTORICO) * 86400000;
+  return lista.filter(p => {
+    const d = dataConclusao(p);
+    if (!d) return true;
+    const t = new Date(d).getTime();
+    return isNaN(t) || t >= corte;
+  });
+}
+
+function renderizarAbas() {
+  const todos = Array.isArray(TODOS_PEDIDOS) ? TODOS_PEDIDOS : [];
+  const abas = [
+    { key: "ativos", label: "Ativos", n: pedidosAtivos().length },
+    { key: "concluidos", label: "Concluídos", n: todos.filter(p => p && STATUS_CONCLUIDOS.includes(p.status_operacional)).length },
+    { key: "cancelados", label: "Cancelados", n: todos.filter(p => p && STATUS_CANCELADOS.includes(p.status_operacional)).length },
+  ];
+  document.getElementById("abas").innerHTML = abas.map(a =>
+    `<button type="button" class="aba-btn ${VISTA_ATUAL === a.key ? 'ativa' : ''}" data-aba="${a.key}">${a.label} (${a.n})</button>`
+  ).join("");
+  document.querySelectorAll(".aba-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      VISTA_ATUAL = btn.dataset.aba;
+      ABERTO_ID = null;
+      renderizar();
+    });
+  });
+}
+
+function renderizarFiltroStatus() {
   const ativos = pedidosAtivos();
   const contagem = { todos: ativos.length };
   STATUS_FILTRAVEIS.forEach(s => { contagem[s] = 0; });
@@ -345,8 +439,39 @@ function renderizarFiltros() {
   document.getElementById("filtroStatus").addEventListener("change", (ev) => {
     FILTRO_ATUAL = ev.target.value;
     ABERTO_ID = null;
-    renderizar();
+    renderizarLista();
   });
+}
+
+function renderizarFiltroHistorico() {
+  document.getElementById("filtros").innerHTML = `
+    <input type="text" class="filtro-select" id="buscaHistorico" placeholder="Buscar por número de pedido ou cliente...">
+    <select class="filtro-select" id="janelaHistorico">
+      <option value="7">Últimos 7 dias</option>
+      <option value="30">Últimos 30 dias</option>
+      <option value="todos">Todos</option>
+    </select>
+  `;
+  const inputBusca = document.getElementById("buscaHistorico");
+  const selectJanela = document.getElementById("janelaHistorico");
+  inputBusca.value = BUSCA_HISTORICO;
+  selectJanela.value = JANELA_HISTORICO;
+  // Só atualiza a lista (renderizarLista), nunca renderizar() completo —
+  // isso evitaria perder o foco/cursor do campo de texto a cada tecla,
+  // já que renderizar() reconstrói o próprio input do zero.
+  inputBusca.addEventListener("input", (ev) => {
+    BUSCA_HISTORICO = ev.target.value;
+    renderizarLista();
+  });
+  selectJanela.addEventListener("change", (ev) => {
+    JANELA_HISTORICO = ev.target.value;
+    renderizarLista();
+  });
+}
+
+function renderizarControles() {
+  if (VISTA_ATUAL === "ativos") renderizarFiltroStatus();
+  else renderizarFiltroHistorico();
 }
 
 function detalheEspecial(p) {
@@ -369,13 +494,19 @@ function acoesParaPedido(p) {
   if (p.status_operacional === "Devolução") {
     return `<button class="btn-avancar" data-acao="avancar" data-proxima="Devolução recebida">Marcar devolução recebida</button>`;
   }
+  // Problema: só tem a ação de resolver (abre as duas opções — voltar ao
+  // fluxo ou cancelar o pedido). Antes disso a tela mobile não tinha
+  // nenhum botão pra esse status.
+  if (p.status_operacional === "Problema") {
+    return `<button class="btn-avancar" data-acao="abrir-resolver-problema">Resolver problema</button>`;
+  }
 
   const proxima = proximaEtapa(p.status_operacional);
   let html = "";
   if (proxima) {
     html += `<button class="btn-avancar" data-acao="avancar" data-proxima="${proxima}">Marcar: ${proxima}</button>`;
   }
-  if (p.status_operacional !== "Entregue" && p.status_operacional !== "Problema") {
+  if (p.status_operacional !== "Entregue") {
     html += `<div class="linha-acoes-secundarias">
       <button class="btn-secundario" data-acao="abrir-corrigir">Corrigir etapa</button>
       <button class="btn-secundario vermelho" data-acao="abrir-problema">Reportar problema</button>
@@ -424,51 +555,130 @@ function formularioCorrigirEtapa(etapaAtual) {
   </div>`;
 }
 
-function renderizar() {
-  renderizarFiltros();
+function formularioResolverProblema(pedido) {
+  const etapaAnterior = pedido && pedido.status_pre_problema;
+  return `<div class="form-inline" data-form="resolver-problema">
+    <label>Motivo do problema registrado</label>
+    <p style="font-size:13px; color:var(--text-secondary); margin:4px 0 10px;">${(pedido && pedido.motivo_problema) || "—"}</p>
+    <div class="form-botoes">
+      <button class="btn-cancelar" data-acao="cancelar-form">Fechar</button>
+      <button class="btn-secundario" data-acao="confirmar-voltar-fluxo" ${etapaAnterior ? "" : "disabled"}>Voltar ao fluxo${etapaAnterior ? " (" + etapaAnterior + ")" : ""}</button>
+    </div>
+    <div class="form-botoes" style="margin-top:8px;">
+      <button class="btn-confirmar" data-acao="confirmar-cancelar-pedido" style="width:100%;">Cancelar pedido</button>
+    </div>
+  </div>`;
+}
 
-  let filtrados = pedidosAtivos();
-  if (FILTRO_ATUAL !== "todos") {
-    filtrados = filtrados.filter(p => p.status_operacional === FILTRO_ATUAL);
-  }
-  filtrados.sort(compararPorChegada);
-
-  const listaEl = document.getElementById("lista");
-  if (filtrados.length === 0) {
-    listaEl.innerHTML = '<p class="vazio">Nenhum pedido nesse filtro.</p>';
-    return;
-  }
-
-  listaEl.innerHTML = filtrados.map(p => {
-    const farol = calcularFarol(p);
-    const aberta = String(p.pedido_id) === String(ABERTO_ID);
-    return `
-      <div class="linha-pedido ${farol.cor !== 'cinza' ? 'farol-' + farol.cor : ''} ${aberta ? 'aberta' : ''}" data-id="${p.pedido_id}">
-        <div class="linha-topo" data-acao="expandir">
-          <span class="dot ${farol.cor}"></span>
-          <div class="linha-info">
-            <div class="num">${p.pedido_id} · ${p.canal || '—'}${p.status_operacional === "Recebido" ? ' <span class="badge-novo">Novo</span>' : ''}</div>
-            <div class="meta">${p.status_operacional} — ${p.produto || ''}</div>
-          </div>
-          <div class="linha-tempo">${farol.texto || ''}</div>
+function renderizarCardAtivo(p) {
+  const farol = calcularFarol(p);
+  const aberta = String(p.pedido_id) === String(ABERTO_ID);
+  return `
+    <div class="linha-pedido ${farol.cor !== 'cinza' ? 'farol-' + farol.cor : ''} ${aberta ? 'aberta' : ''}" data-id="${p.pedido_id}">
+      <div class="linha-topo" data-acao="expandir">
+        <span class="dot ${farol.cor}"></span>
+        <div class="linha-info">
+          <div class="num">${p.pedido_id} · ${p.canal || '—'}${p.status_operacional === "Recebido" ? ' <span class="badge-novo">Novo</span>' : ''}</div>
+          <div class="meta">${p.status_operacional} — ${p.produto || ''}</div>
         </div>
-        <div class="linha-detalhe">
-          <p><b>Cliente:</b> ${p.cliente || '—'}</p>
-          <p><b>Produto:</b> ${p.produto || '—'}</p>
-          ${p.codigo_rastreio ? `<p><b>Rastreio:</b> ${p.codigo_rastreio}${p.data_postado ? ' · postado em ' + p.data_postado : ''}</p>` : ''}
-          ${detalheEspecial(p)}
-          <div data-area-acoes>${acoesParaPedido(p)}</div>
-        </div>
+        <div class="linha-tempo">${farol.texto || ''}</div>
       </div>
-    `;
-  }).join("");
+      <div class="linha-detalhe">
+        <p><b>Cliente:</b> ${p.cliente || '—'}</p>
+        <p><b>Produto:</b> ${p.produto || '—'}</p>
+        <p><b>Quantidade:</b> ${formatarQuantidade(p.quantidade)} · <b>Valor:</b> ${formatarValor(p.valor)}</p>
+        ${p.codigo_rastreio ? `<p><b>Rastreio:</b> ${p.codigo_rastreio}${p.data_postado ? ' · postado em ' + p.data_postado : ''}</p>` : ''}
+        ${detalheEspecial(p)}
+        <div data-area-acoes>${acoesParaPedido(p)}</div>
+      </div>
+    </div>
+  `;
+}
 
+// Detalhe extra mostrado nas abas "Concluídos"/"Cancelados" — sem farol,
+// sem botão de ação, só consulta.
+function detalheHistorico(p) {
+  if (p.status_operacional === "Entregue") {
+    return `<p><b>Entregue em:</b> ${p.data_entrega || "—"}</p>`;
+  }
+  if (p.status_operacional === "Devolução recebida") {
+    let h = `<p><b>Sub-motivo:</b> ${p.sub_motivo_devolucao || "—"}</p>`;
+    if (p.motivo_devolucao) h += `<p><b>Observação:</b> ${p.motivo_devolucao}</p>`;
+    return h;
+  }
+  if (p.status_operacional === "Cancelado") {
+    return `<p><b>Motivo do problema original:</b> ${p.motivo_problema || "—"}</p>`;
+  }
+  return "";
+}
+
+function renderizarCardHistorico(p) {
+  const aberta = String(p.pedido_id) === String(ABERTO_ID);
+  const concluidoEm = dataConclusao(p);
+  return `
+    <div class="linha-pedido ${aberta ? 'aberta' : ''}" data-id="${p.pedido_id}">
+      <div class="linha-topo" data-acao="expandir">
+        <span class="dot cinza"></span>
+        <div class="linha-info">
+          <div class="num">${p.pedido_id} · ${p.canal || '—'}</div>
+          <div class="meta">${p.status_operacional} — ${p.produto || ''}</div>
+        </div>
+        <div class="linha-tempo">${concluidoEm ? String(concluidoEm).slice(0, 10) : ''}</div>
+      </div>
+      <div class="linha-detalhe">
+        <p><b>Cliente:</b> ${p.cliente || '—'}</p>
+        <p><b>Produto:</b> ${p.produto || '—'}</p>
+        <p><b>Quantidade:</b> ${formatarQuantidade(p.quantidade)} · <b>Valor:</b> ${formatarValor(p.valor)}</p>
+        ${detalheHistorico(p)}
+      </div>
+    </div>
+  `;
+}
+
+function renderizar() {
+  renderizarAbas();
+  renderizarControles();
+  renderizarLista();
+}
+
+function renderizarLista() {
+  const listaEl = document.getElementById("lista");
+  let itens;
+
+  if (VISTA_ATUAL === "ativos") {
+    let filtrados = pedidosAtivos();
+    if (FILTRO_ATUAL !== "todos") {
+      filtrados = filtrados.filter(p => p.status_operacional === FILTRO_ATUAL);
+    }
+    filtrados.sort(compararPorChegada);
+    if (filtrados.length === 0) {
+      listaEl.innerHTML = '<p class="vazio">Nenhum pedido nesse filtro.</p>';
+      return;
+    }
+    itens = filtrados.map(renderizarCardAtivo).join("");
+  } else {
+    const statusAlvo = VISTA_ATUAL === "concluidos" ? STATUS_CONCLUIDOS : STATUS_CANCELADOS;
+    let lista = (Array.isArray(TODOS_PEDIDOS) ? TODOS_PEDIDOS : []).filter(p => p && statusAlvo.includes(p.status_operacional));
+    lista = aplicarFiltroHistorico(lista);
+    lista.sort(compararPorConclusao);
+    if (lista.length === 0) {
+      listaEl.innerHTML = '<p class="vazio">Nenhum pedido encontrado.</p>';
+      return;
+    }
+    itens = lista.map(renderizarCardHistorico).join("");
+  }
+
+  listaEl.innerHTML = itens;
+  ligarListenersLista();
+}
+
+function ligarListenersLista() {
   document.querySelectorAll('[data-acao="expandir"]').forEach(el => {
     el.addEventListener("click", () => {
       const card = el.closest(".linha-pedido");
       const id = card.dataset.id;
       ABERTO_ID = (String(ABERTO_ID) === String(id)) ? null : id;
-      renderizar();
+      renderizarLista();
     });
   });
 
@@ -514,11 +724,22 @@ function renderizar() {
       ligarBotoesForm(area, pedidoId);
     });
   });
+
+  document.querySelectorAll('[data-acao="abrir-resolver-problema"]').forEach(el => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const pedidoId = el.closest(".linha-pedido").dataset.id;
+      const pedido = TODOS_PEDIDOS.find(p => String(p.pedido_id) === String(pedidoId));
+      const area = el.closest("[data-area-acoes]");
+      area.innerHTML = formularioResolverProblema(pedido);
+      ligarBotoesForm(area, pedidoId);
+    });
+  });
 }
 
 function ligarBotoesForm(area, pedidoId) {
   const cancelar = area.querySelector('[data-acao="cancelar-form"]');
-  if (cancelar) cancelar.addEventListener("click", (ev) => { ev.stopPropagation(); renderizar(); });
+  if (cancelar) cancelar.addEventListener("click", (ev) => { ev.stopPropagation(); renderizarLista(); });
 
   const confirmarProblema = area.querySelector('[data-acao="confirmar-problema"]');
   if (confirmarProblema) {
@@ -562,6 +783,26 @@ function ligarBotoesForm(area, pedidoId) {
       ev.stopPropagation();
       const novaEtapa = area.querySelector('[data-campo="nova_etapa"]').value;
       gravar({ pedido_id: pedidoId, status_operacional: novaEtapa });
+    });
+  }
+
+  const confirmarVoltarFluxo = area.querySelector('[data-acao="confirmar-voltar-fluxo"]');
+  if (confirmarVoltarFluxo) {
+    confirmarVoltarFluxo.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const pedido = TODOS_PEDIDOS.find(p => String(p.pedido_id) === String(pedidoId));
+      const etapaAnterior = pedido && pedido.status_pre_problema;
+      if (!etapaAnterior) { alert("Etapa anterior não registrada para este pedido."); return; }
+      gravar({ pedido_id: pedidoId, status_operacional: etapaAnterior });
+    });
+  }
+
+  const confirmarCancelarPedido = area.querySelector('[data-acao="confirmar-cancelar-pedido"]');
+  if (confirmarCancelarPedido) {
+    confirmarCancelarPedido.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (!confirm("Confirma cancelar este pedido? Ele sai da lista de pedidos ativos e vai pra aba \"Cancelados\".")) return;
+      gravar({ pedido_id: pedidoId, status_operacional: "Cancelado" });
     });
   }
 }
